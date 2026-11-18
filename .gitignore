@@ -1,0 +1,5 @@
+__pycache__/
+*.pyc
+rec_frames/
+shots/
+*.mp4
