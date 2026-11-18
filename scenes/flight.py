@@ -637,6 +637,7 @@ class Flight(Scene):
 
         self.draw_sky_fx(cam)
         self.draw_ridge(cam)
+        self.draw_haze(cam)
         self.draw_canyon(cam)
         self.draw_track(cam)
         self.draw_beacon(cam)
@@ -703,6 +704,33 @@ class Flight(Scene):
             poly += list(reversed(top))
             pygame.draw.polygon(self.buf, fill, poly)
             pygame.draw.lines(self.buf, mix(fill, base, 0.22), False, top, 1)
+
+    def draw_haze(self, cam):
+        hz, _ = cam_proj(cam, (0.0, 0.0, self.z + 160.0))
+        if hz is None:
+            return
+        base = self.sec['line']
+        floor = hz[1] + 1
+        for dist, lift, depth in ((74.0, 0.008, 16), (108.0, 0.030, 22),
+                                  (148.0, 0.062, 28)):
+            zf = self.z + dist
+            top = []
+            for i in range(-18, 19):
+                x = i * 2.4
+                h = (0.55 * math.sin(x * 0.13 + zf * 0.03) +
+                     0.45 * math.sin(x * 0.05 - zf * 0.02))
+                p, _ = cam_proj(cam, (x, h * depth * 0.01 + lift, zf))
+                if p is not None:
+                    top.append((p[0], min(p[1], floor - 1)))
+            if len(top) < 3:
+                continue
+            far = clamp((dist - 70.0) / 110.0)
+            col = mix(mix(base, (10, 17, 34), 0.22), self.top_col,
+                      0.22 + 0.34 * far)
+            poly = [(SW * -0.3, floor), (SW * 1.3, floor)]
+            poly += list(reversed(top))
+            pygame.draw.polygon(self.buf, col, poly)
+            pygame.draw.lines(self.buf, mix(col, base, 0.34), False, top, 1)
 
     def draw_canyon(self, cam):
         base = self.sec['line']
