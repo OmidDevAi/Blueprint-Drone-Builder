@@ -1098,15 +1098,16 @@ class Hangar(Scene):
         text(win, RX0 + 16, 78, 'PERFORMANCE', 12, 'bold', SOFT, track=2.4)
         text(win, RX1 - 16, 80, 'LIVE', 9, 'mono', TEAL, 'r', track=1.6)
         rows = (
-            ('MASS', '{:.0f} KG'.format(s['mass']), s['mass'] / 340.0, SOFT),
-            ('THRUST', '{:.0f}'.format(s['thrust']), s['thrust'] / 420.0, TEAL),
-            ('DRAG', '{:.2f}'.format(s['drag']), s['drag'] / 14.0, RED),
-            ('TOP SPEED', '{} KM/H'.format(s['kmh']), (s['top'] - 12) / 16.0, GOLD),
-            ('AGILITY', '{:.0f}'.format(s['agility']), s['agility'] / 100.0, CYAN),
-            ('BOOST', '{:.0f}'.format(s['energy']), s['energy'] / 120.0, TEAL),
+            ('MASS', '{:.0f} KG'.format(s['mass']), s['mass'] / 340.0, SOFT, 'mass'),
+            ('THRUST', '{:.0f}'.format(s['thrust']), s['thrust'] / 420.0, TEAL, 'thrust'),
+            ('DRAG', '{:.2f}'.format(s['drag']), s['drag'] / 14.0, RED, 'drag'),
+            ('TOP SPEED', '{} KM/H'.format(s['kmh']), (s['top'] - 12) / 16.0, GOLD, 'speed'),
+            ('AGILITY', '{:.0f}'.format(s['agility']), s['agility'] / 100.0, CYAN, 'agility'),
+            ('BOOST', '{:.0f}'.format(s['energy']), s['energy'] / 120.0, TEAL, 'boost'),
         )
-        for i, (lab, val, frac, col) in enumerate(rows):
-            stat_row(win, RX0 + 16, RX1 - 16, 112 + i * 38, lab, val, frac, col)
+        for i, (lab, val, frac, col, ico) in enumerate(rows):
+            stat_row(win, RX0 + 16, RX1 - 16, 112 + i * 38, lab, val, frac, col,
+                     icon_name=ico)
 
         pygame.draw.line(win, (26, 42, 68), (RX0 + 16, 340), (RX1 - 16, 340), 1)
         text(win, RX0 + 16, 348, 'BUILD INTEGRITY', 10, 'bold',

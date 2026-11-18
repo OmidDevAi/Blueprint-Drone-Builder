@@ -42,8 +42,12 @@ def section(win, x, y, label, col=SOFT, size=10, track=2.2, alpha=1.0):
     return w
 
 
-def stat_row(win, x0, x1, y, label, value, frac, col, alpha=1.0):
+def stat_row(win, x0, x1, y, label, value, frac, col, alpha=1.0, icon_name=None):
     from ui import bar
+    if icon_name:
+        from icons import icon
+        icon(win, icon_name, x0, y - 1, 13, col, alpha * 0.92)
+        x0 += 19
     text(win, x0, y, label, 10, 'mono', mix(SOFT, PANEL, 0.62), track=1.4, alpha=alpha)
     text(win, x1, y - 2, value, 13, 'mono', col, 'r', alpha=alpha)
     bar(win, x0, y + 16, x1 - x0, 3, frac, col, bg=(22, 36, 58), alpha=alpha)
