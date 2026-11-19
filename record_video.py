@@ -51,43 +51,27 @@ def main():
     hang = app.scene
     fit_std_airframe(hang)
     hang.apply_paint(PAINTS[4])
-    rec.tick(app, 30)
+    rec.tick(app, 24)
 
     # slow turntable drag, like a player inspecting the build
-    for k in range(240):
-        hang.yaw_off = -0.45 + 1.25 * (k / 240.0)
+    for k in range(110):
+        hang.yaw_off = -0.4 + 1.1 * (k / 110.0)
         rec.tick(app, 1)
 
-    # editor: pull the silhouette sliders, then pick a material
-    app.set_scene('editor')
-    ed = app.scene
-    ed.sliders[0].value = 0.30
-    ed.sliders[1].value = 0.10
-    ed.sliders[2].value = 7
-    ed.sliders[3].value = 0.10
-    ed.sliders[4].value = 0.018
-    ed.rebuild()
-    rec.tick(app, 150)
-    for k in range(90):
-        ed.sliders[0].value = 0.30 + 0.18 * (k / 90.0)
-        ed.sliders[2].value = 7 + 2 * (k / 90.0)
-        ed.rebuild()
-        rec.tick(app, 1)
-    ed.params['material'] = 'carbon'
-    ed.rebuild()
-    rec.tick(app, 30)
-
-    # flight, autopilot, until the run is graded
+    # street circuit
+    app.state['sector'] = 0
     app.set_scene('flight')
-    app.fade = 0.0
-    fl = app.scene
-    t = 0.0
-    while fl.mode != 'result' and t < 40.0:
-        rec.tick(app, 1)
-        t += 1.0 / FPS
-    rec.tick(app, 75)          # hold the result card
+    street = app.scene
+    rec.tick(app, int(9.0 * FPS))
 
-    print('frames:', rec.i, 'flight seconds:', round(t, 1), 'mode:', fl.mode)
+    # forest run
+    app.state['sector'] = 1
+    app.set_scene('flight')
+    forest = app.scene
+    rec.tick(app, int(8.0 * FPS))
+
+    print('frames:', rec.i, 'street z:', round(street.z), 'mode:', street.mode,
+          '| forest z:', round(forest.z), 'mode:', forest.mode)
     pygame.quit()
     return 0
 

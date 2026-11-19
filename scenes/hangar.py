@@ -14,16 +14,17 @@ from scenes.bay import HangarBay
 from ship import (build_ship, compute_stats, layout, socket_world, body_scale,
                   entry_at)
 from ui import (panel, text, coin, bar, Button, ICONS, icon_lock,
-                set_cursor)
+                set_cursor, text_w)
 import audio
 
 LEFT_X0, LEFT_X1 = 16, 300
 RX0, RX1 = 976, 1264
 CARD_X0, CARD_X1 = 26, 290
 TABS = SLOT_ORDER + ('paint',)
-TAB_LABEL = dict(SLOT_LABEL, paint='PAINT')
-CARD_Y0, CARD_H, CARD_GAP = 214, 104, 8
-CARD_VISIBLE = 3
+TAB_CELLS = TABS + ('forge',)
+TAB_LABEL = dict(SLOT_LABEL, paint='PAINT', forge='FORGE')
+CARD_Y0, CARD_H, CARD_GAP = 214, 92, 8
+CARD_VISIBLE = 4
 PAINT_COLS = 2
 PAINT_ROWS = 4
 PAINT_GAP = 8
@@ -33,6 +34,34 @@ PERF_Y0, PERF_Y1 = 68, 432
 CARD_AREA = pygame.Rect(CARD_X0, CARD_Y0, CARD_X1 - CARD_X0,
                         CARD_VISIBLE * (CARD_H + CARD_GAP) - CARD_GAP)
 VIEW_X0, VIEW_Y0, VIEW_X1, VIEW_Y1 = 306, 60, 968, 620
+
+# label, stat key, lo, hi, value format, higher-is-better
+STAT_ROWS = {
+    'body': (('MASS', 'mass', 0.0, 90.0, '{:.0f}', False),
+             ('DRAG', 'drag', 0.0, 2.0, '{:.2f}', False),
+             ('AGILITY', 'agility', -12.0, 18.0, '{:.0f}', True),
+             ('LIFT', 'lift', 0.0, 6.0, '{:.0f}', True)),
+    'frame': (('MASS', 'mass', 0.0, 28.0, '{:.0f}', False),
+              ('DRAG', 'drag', 0.0, 0.55, '{:.2f}', False),
+              ('REACH', 'reach', 0.8, 1.3, 'x{:.2f}', True),
+              ('AGILITY', 'agility', -8.0, 10.0, '{:.0f}', True)),
+    'rotor': (('THRUST', 'thrust', 0.0, 360.0, '{:.0f}', True),
+              ('MASS', 'mass', 0.0, 55.0, '{:.0f}', False),
+              ('DRAG', 'drag', 0.0, 5.5, '{:.2f}', False),
+              ('AGILITY', 'agility', 0.0, 17.0, '{:.0f}', True)),
+    'motor': (('THRUST', 'thrust', 0.0, 180.0, '{:.0f}', True),
+              ('ENERGY', 'energy', 0.0, 100.0, '{:.0f}', True),
+              ('MASS', 'mass', 0.0, 60.0, '{:.0f}', False),
+              ('DRAG', 'drag', 0.0, 0.65, '{:.2f}', False)),
+    'wing': (('LIFT', 'lift', 0.0, 44.0, '{:.0f}', True),
+             ('AGILITY', 'agility', 0.0, 24.0, '{:.0f}', True),
+             ('MASS', 'mass', 0.0, 30.0, '{:.0f}', False),
+             ('DRAG', 'drag', 0.0, 2.0, '{:.2f}', False)),
+    'booster': (('THRUST', 'thrust', 0.0, 128.0, '{:.0f}', True),
+                ('BOOST', 'energy', 0.0, 130.0, '{:.0f}', True),
+                ('MASS', 'mass', 0.0, 38.0, '{:.0f}', False),
+                ('DRAG', 'drag', 0.0, 1.4, '{:.2f}', False)),
+}
 
 
 class Hangar(Scene):
@@ -50,6 +79,8 @@ class Hangar(Scene):
         self.del_rects = []
         self.socket_hits = []
         self.del_arm = (None, 0.0)
+        self.hover_info = None
+        self.picks = {}
         self.fly_btn = Button('fly', (RX0, 444, RX1 - RX0, 58), 'AUTO FLY',
                               'gold', 17, 'mono', 2.8,
                               sub='SECTOR 01 · 8 CORES')
@@ -151,12 +182,7 @@ class Hangar(Scene):
         self.sparks_fx = [sp for sp in self.sparks_fx if sp['age'] < 0.9]
 
     def items(self):
-        if self.slot == 'paint':
-            return list(PAINTS)
-        items = list(CATALOG[self.slot])
-        if self.slot == 'rotor':
-            items.extend(self.app.state['custom'])
-        return items
+        return self.slot_items(self.slot)
 
     def sector(self):
         return SECTORS[int(clamp(self.app.state.get('sector', 0), 0, 2))]
@@ -309,10 +335,14 @@ class Hangar(Scene):
                     return
             for i, r in enumerate(self.tab_rects):
                 if r.collidepoint(pos):
-                    slot = TABS[i]
-                    self.slot = slot
-                    if slot != 'paint':
-                        self.socket = (slot, self.first_open(slot))
+                    tab = TAB_CELLS[i]
+                    if tab == 'forge':
+                        audio.play('select')
+                        self.app.set_scene('editor')
+                        return
+                    self.slot = tab
+                    if tab != 'paint':
+                        self.socket = (tab, self.first_open(tab))
                     self.reveal_selected()
                     self.scroll = 0
                     audio.play('click')
@@ -361,6 +391,10 @@ class Hangar(Scene):
             audio.play('error')
             self.app.toast('AIRFRAME GROUNDED', self.grounded_reason(), RED)
             return
+        fault = self.stats.get('fault')
+        if fault:
+            self.app.toast('FLIGHT RISK', '{} · GOING UP ANYWAY'.format(fault[0]),
+                           GOLD)
         audio.play('select')
         self.app.set_scene('flight')
 
@@ -825,42 +859,113 @@ class Hangar(Scene):
             text(win, W / 2, 626, 'MATCH THE PAIRS · KEEP THE TRIM GREEN', 9,
                  'mono', mix(DIM, PANEL, 0.4), 'c', track=1.4, alpha=a * 0.8)
 
+    def slot_items(self, slot):
+        if slot == 'paint':
+            return list(PAINTS)
+        items = list(CATALOG[slot])
+        if slot == 'rotor':
+            items.extend(self.app.state['custom'])
+        return items
+
+    def owned_count(self, slot):
+        if slot == 'paint':
+            n = len(PAINTS)
+            return n, n
+        st = self.app.state
+        items = self.slot_items(slot)
+        n = sum(1 for e in items
+                if e.get('custom') or e['id'] in st['owned'])
+        return n, len(items)
+
+    def stat_rows(self, slot, e):
+        st = entry_stats(e)
+        out = []
+        for lab, key, lo, hi, fmt, higher in STAT_ROWS[slot]:
+            v = (e.get('geo', {}).get('reach', 1.0) if key == 'reach'
+                 else st.get(key, 0.0))
+            out.append((lab, key, v, clamp((v - lo) / max(1e-9, hi - lo)),
+                        fmt, higher))
+        return out
+
+    def top_pick(self, slot):
+        st = self.app.state
+        best, bs = None, -1.0
+        for e in self.slot_items(slot):
+            if not (e.get('custom') or e['id'] in st['owned']):
+                continue
+            rows = self.stat_rows(slot, e)
+            sc = sum(r[3] if r[5] else 1.0 - r[3] for r in rows[:2])
+            if sc > bs:
+                best, bs = e['id'], sc
+        return best
+
+    @staticmethod
+    def star(win, cx, cy, r, col):
+        pts = []
+        for i in range(10):
+            rr = r if i % 2 == 0 else r * 0.45
+            a = -math.pi / 2 + math.pi * i / 5
+            pts.append((cx + math.cos(a) * rr, cy + math.sin(a) * rr))
+        pygame.draw.polygon(win, col, pts)
+
     def draw_left(self, win):
         st = self.app.state
         mouse = pygame.mouse.get_pos()
+        self.hover_info = None
         panel(win, LEFT_X0, 68, LEFT_X1, 660, PANEL, 0.82, radius=12,
               outline=(30, 46, 72))
         pygame.draw.rect(win, mix(GOLD, PANEL, 0.5), (LEFT_X0 + 16, 82, 3, 14),
                          border_radius=2)
         text(win, LEFT_X0 + 26, 78, 'PARTS BIN', 19, 'tech', WHITE, track=2.8)
-        text(win, LEFT_X0 + 26, 101, 'BUY ONCE · FIT ANY SOCKET', 9, 'mono',
-             mix(DIM, PANEL, 0.6), track=1.8)
+        text(win, LEFT_X0 + 26, 101, 'FIT ANY SOCKET', 9, 'mono',
+             mix(DIM, PANEL, 0.6), track=1.4)
+        own, total = self.owned_count(self.slot)
+        text(win, LEFT_X1 - 22, 101, '{} / {} OWNED'.format(own, total), 9,
+             'mono', mix(TEAL, PANEL, 0.4), 'r', track=1.0)
 
         self.tab_rects = []
-        for i, slot in enumerate(TABS):
+        for i, tab in enumerate(TAB_CELLS):
             row, col = divmod(i, 4)
             x = 24 + col * 66
             y = 114 + row * 46
             r = pygame.Rect(x, y, 64, 42)
             self.tab_rects.append(r)
-            sel = slot == self.slot
+            sel = tab == self.slot
             hov = r.collidepoint(mouse)
+            forge = tab == 'forge'
             if sel:
                 panel(win, x, y, x + 64, y + 42, TEAL, 0.94, radius=7)
                 col_t = (9, 24, 30)
+            elif forge:
+                panel(win, x, y, x + 64, y + 42, (30, 25, 14),
+                      0.95 if hov else 0.6, radius=7,
+                      outline=mix(GOLD, PANEL, 0.3 if hov else 0.55))
+                col_t = GOLD if hov else mix(GOLD, DIM, 0.55)
             else:
                 panel(win, x, y, x + 64, y + 42, PANEL_L,
                       0.95 if hov else 0.7, radius=7,
                       outline=(64, 94, 134) if hov else (40, 58, 86))
                 col_t = SOFT if hov else DIM
-            ICONS[slot](win, x + 32, y + 15, 9, col_t, 2)
-            text(win, x + 32, y + 27, TAB_LABEL[slot][:5], 8, 'mono', col_t,
+            ICONS[tab](win, x + 32, y + 15, 9, col_t, 2)
+            text(win, x + 32, y + 27, TAB_LABEL[tab][:5], 8, 'mono', col_t,
                  'c', track=0.5)
+            if forge:
+                continue
+            n, o = self.owned_count(tab)
+            pygame.draw.rect(win, (14, 44, 44) if sel else (24, 40, 62),
+                             (x + 8, y + 37, 48, 2))
+            if o:
+                pygame.draw.rect(win, (8, 76, 72) if sel else mix(TEAL, PANEL, 0.25),
+                                 (x + 8, y + 37,
+                                  max(2, int(48 * o / max(1, n))), 2))
 
         items = self.items()
         self.card_rects = []
         self.del_rects = []
         paint = self.slot == 'paint'
+        self.picks = {} if paint else {self.slot: self.top_pick(self.slot)}
+        row0 = 0
+        rows = 0
         if paint:
             rows = (len(items) + PAINT_COLS - 1) // PAINT_COLS
             row0 = min(self.scroll, max(0, rows - PAINT_ROWS))
@@ -883,10 +988,17 @@ class Hangar(Scene):
                      pygame.Rect(CARD_X0, y, CARD_X1 - CARD_X0, CARD_H)))
                 self.draw_card(win, y, e)
 
-        hint = ('CLICK A FINISH TO RECOLOR THE WHOLE BUILD' if paint
-                else 'CLICK A CARD TO BOLT IT TO THE SELECTED SOCKET')
-        text(win, LEFT_X0 + 18, 640, hint, 9, 'mono',
-             mix(SOFT, PANEL, 0.55), track=0.9)
+        if self.hover_info and not paint:
+            nm, tag, colr = self.hover_info
+            text(win, LEFT_X0 + 18, 640, nm, 9, 'mono',
+                 mix(SOFT, PANEL, 0.35), track=1.0)
+            text(win, LEFT_X0 + 18 + text_w(nm, 9, 'mono', 1.0) + 8, 640,
+                 tag, 9, 'mono', colr, track=0.8)
+        else:
+            hint = ('CLICK A FINISH TO RECOLOR THE WHOLE BUILD' if paint
+                    else 'BAR = PART   ·   TICK = FITTED NOW')
+            text(win, LEFT_X0 + 18, 640, hint, 9, 'mono',
+                 mix(SOFT, PANEL, 0.55), track=0.9)
         total = len(items)
         if (rows if paint else total) > (PAINT_ROWS if paint else CARD_VISIBLE):
             text(win, LEFT_X0 + 18, 652, 'SCROLL  ▾', 9, 'mono',
@@ -895,7 +1007,9 @@ class Hangar(Scene):
                 shown = min(total, (row0 + PAINT_ROWS) * PAINT_COLS)
                 label = '{}-{} OF {}'.format(row0 * PAINT_COLS + 1, shown, total)
             else:
-                label = '{}/{}'.format(self.scroll + 1, total)
+                label = '{}-{} OF {}'.format(
+                    self.scroll + 1,
+                    min(total, self.scroll + CARD_VISIBLE), total)
             text(win, LEFT_X1 - 24, 652, label, 9, 'mono',
                  mix(DIM, PANEL, 0.6), 'r', track=1.0)
             track = pygame.Rect(LEFT_X1 - 10, CARD_Y0, 3, CARD_AREA.h)
@@ -932,6 +1046,7 @@ class Hangar(Scene):
             here = self.lay[slot].get(key) == e['id']
         fitted = self.fit_count(slot, e['id'])
         hov = rect.collidepoint(mouse)
+        top = self.picks.get(slot) == e['id'] and not here
 
         if here:
             panel(win, x0, y, x1, y + CARD_H, (17, 36, 54), 0.96, radius=8,
@@ -945,82 +1060,86 @@ class Hangar(Scene):
 
         acc = e.get('accent', GOLD)
         icon_col = acc if owned else mix(acc, PANEL, 0.45)
-        ICONS[slot](win, x0 + 22, y + 30, 11, icon_col, 1)
-        text(win, x0 + 42, y + 9, e['name'], 15, 'tech',
-             WHITE if owned else mix(WHITE, PANEL, 0.55), track=1.6)
+        ICONS[slot](win, x0 + 22, y + 28, 10, icon_col, 1)
+        nx = x0 + 38
+        if top:
+            self.star(win, x0 + 44, y + 16, 5, GOLD)
+            nx = x0 + 54
+        text(win, nx, y + 7, e['name'], 14, 'tech',
+             WHITE if owned else mix(WHITE, PANEL, 0.55), track=1.5)
         desc = e.get('desc', '')
         if e.get('custom'):
             mat = e['params'].get('material', 'alloy').upper()
             desc = 'CUSTOM · ' + mat
-        text(win, x0 + 42, y + 29, desc, 9.5, 'mono',
-             mix(DIM, PANEL, 0.5 if owned else 0.75), track=0.9)
+        text(win, x0 + 38, y + 25, desc, 9, 'mono',
+             mix(DIM, PANEL, 0.5 if owned else 0.75), track=0.8)
 
         if not owned:
-            pill = pygame.Rect(x1 - 84, y + 7, 76, 20)
-            panel(win, pill.x, pill.y, pill.right, pill.bottom, (34, 27, 14),
-                  0.95, radius=5, outline=mix(GOLD, PANEL, 0.45))
-            coin(win, pill.x + 12, pill.y + 10, 5, self.app.coin_spin)
-            text(win, pill.right - 8, y + 9, '{:,}'.format(int(e['price'])),
-                 12, 'mono', GOLD, 'r', track=0.4)
+            price = int(e['price'])
+            pw = int(text_w('{:,}'.format(price), 10.5, 'mono')) + 30
+            pill = pygame.Rect(x1 - 8 - pw, y + 6, pw, 18)
+            afford = st['credits'] >= price
+            if afford:
+                panel(win, pill.x, pill.y, pill.right, pill.bottom, (34, 27, 14),
+                      0.95, radius=5, outline=mix(GOLD, PANEL, 0.45))
+                pcol = GOLD
+            else:
+                panel(win, pill.x, pill.y, pill.right, pill.bottom, (19, 24, 32),
+                      0.95, radius=5, outline=(48, 60, 78))
+                pcol = mix(DIM, PANEL, 0.35)
+            coin(win, pill.x + 11, pill.y + 9, 5, self.app.coin_spin,
+                 GOLD if afford else mix(DIM, PANEL, 0.45))
+            text(win, pill.right - 7, y + 8, '{:,}'.format(price),
+                 10.5, 'mono', pcol, 'r', track=0.4)
         elif here:
-            pill = pygame.Rect(x1 - 96, y + 7, 88, 20)
+            pill = pygame.Rect(x1 - 94, y + 6, 86, 18)
             panel(win, pill.x, pill.y, pill.right, pill.bottom, (16, 44, 48),
                   0.95, radius=5, outline=TEAL)
-            text(win, pill.centerx, y + 10, 'IN SOCKET', 9, 'mono', TEAL, 'c',
-                 track=1.2)
+            text(win, pill.centerx, y + 9, 'IN SOCKET', 8.5, 'mono', TEAL,
+                 'c', track=1.2)
         elif block:
-            pill = pygame.Rect(x1 - 92, y + 7, 84, 20)
+            pill = pygame.Rect(x1 - 92, y + 6, 84, 18)
             panel(win, pill.x, pill.y, pill.right, pill.bottom, (34, 22, 14),
                   0.95, radius=5, outline=mix(RED, PANEL, 0.55))
-            text(win, pill.centerx, y + 10, self.prereq_short(slot, key), 8.5,
+            text(win, pill.centerx, y + 9, self.prereq_short(slot, key), 8.5,
                  'mono', mix(RED, SOFT, 0.35), 'c', track=0.8)
         elif fitted:
-            pill = pygame.Rect(x1 - 84, y + 7, 76, 20)
+            pill = pygame.Rect(x1 - 84, y + 6, 76, 18)
             panel(win, pill.x, pill.y, pill.right, pill.bottom, (14, 34, 48),
                   0.95, radius=5, outline=mix(TEAL, PANEL, 0.5))
-            text(win, pill.centerx, y + 10, 'FITTED ×{}'.format(fitted), 8.5,
+            text(win, pill.centerx, y + 9, 'FITTED ×{}'.format(fitted), 8.5,
                  'mono', mix(TEAL, SOFT, 0.3), 'c', track=0.9)
         else:
-            pill = pygame.Rect(x1 - 66, y + 7, 58, 20)
+            pill = pygame.Rect(x1 - 64, y + 6, 56, 18)
             panel(win, pill.x, pill.y, pill.right, pill.bottom, PANEL_L,
                   0.95 if hov else 0.6, radius=5,
                   outline=TEAL if hov else (58, 92, 132))
-            text(win, pill.centerx, y + 10, 'BOLT', 9, 'mono',
+            text(win, pill.centerx, y + 9, 'BOLT', 8.5, 'mono',
                  TEAL if hov else mix(SOFT, PANEL, 0.4), 'c', track=1.2)
 
-        stats = entry_stats(e)
-        if slot == 'body':
-            rows = (('MASS', '{:.0f}'.format(stats['mass']), stats['mass'] / 120.0),
-                    ('DRAG', '{:.2f}'.format(stats['drag']), stats['drag'] / 3.0))
-        elif slot == 'frame':
-            reach = e.get('geo', {}).get('reach', 1.0)
-            rows = (('MASS', '{:.0f}'.format(stats['mass']), stats['mass'] / 30.0),
-                    ('REACH', 'x{:.2f}'.format(reach), (reach - 0.8) / 0.5))
-        elif slot == 'rotor':
-            rows = (('THRUST', '{:.0f}'.format(stats['thrust']), stats['thrust'] / 300.0),
-                    ('MASS', '{:.0f}'.format(stats['mass']), stats['mass'] / 90.0))
-        elif slot == 'motor':
-            rows = (('THRUST', '{:.0f}'.format(stats['thrust']), stats['thrust'] / 180.0),
-                    ('ENERGY', '{:.0f}'.format(stats['energy']), stats['energy'] / 100.0))
-        elif slot == 'wing':
-            rows = (('LIFT', '{:.0f}'.format(stats['lift']), stats['lift'] / 40.0),
-                    ('AGILITY', '{:.0f}'.format(stats['agility']), stats['agility'] / 25.0))
-        else:
-            rows = (('THRUST', '{:.0f}'.format(stats['thrust']), stats['thrust'] / 120.0),
-                    ('BOOST', '{:.0f}'.format(stats['energy']), stats['energy'] / 120.0))
-
-        for k, (lab, val, frac) in enumerate(rows):
-            yy = y + 52 + k * 24
-            text(win, x0 + 42, yy, lab, 9, 'mono', mix(DIM, PANEL, 0.62), track=1.2)
-            text(win, x1 - 12, yy - 2, val, 10.5, 'mono',
-                 mix(SOFT, PANEL, 0.35), 'r')
-            bar(win, x0 + 42, yy + 14, x1 - x0 - 58, 3, frac,
+        rows = self.stat_rows(slot, e)
+        cur = entry_at(self.app.state, self.lay, slot, key)
+        craw = ({r[1]: r[3] for r in self.stat_rows(slot, cur)}
+                if cur is not None and cur['id'] != e['id'] else None)
+        vcol = mix(SOFT, PANEL, 0.35) if owned else mix(SOFT, PANEL, 0.62)
+        for i, (lab, skey, v, frac, fmt, higher) in enumerate(rows):
+            lx = x0 + 42 + (i % 2) * 114
+            vx = x0 + 144 + (i % 2) * 110
+            wbar = 102 if i % 2 == 0 else 98
+            yy = y + 42 + (i // 2) * 23
+            text(win, lx, yy, lab, 8.5, 'mono', mix(DIM, PANEL, 0.55),
+                 track=1.0)
+            text(win, vx, yy - 1, fmt.format(v), 10, 'mono', vcol, 'r')
+            bar(win, lx, yy + 12, wbar, 3, frac,
                 acc if owned else mix(acc, PANEL, 0.55),
                 bg=(22, 36, 58), alpha=0.9)
+            if craw is not None and abs(frac - craw[skey]) > 0.02:
+                tx = lx + int(wbar * clamp(craw[skey]))
+                pygame.draw.rect(win, (226, 240, 255), (tx, yy + 9, 1, 8))
 
         if e.get('custom'):
             armed = self.del_arm[0] == e['id'] and self.t - self.del_arm[1] < 2.5
-            r = pygame.Rect(x1 - 24, y + 33, 14, 14)
+            r = pygame.Rect(x1 - 22, y + 26, 14, 14)
             self.del_rects.append((e['id'], r))
             c = RED if armed else mix(DIM, PANEL, 0.3)
             pygame.draw.rect(win, c, r, 1, border_radius=3)
@@ -1029,8 +1148,28 @@ class Hangar(Scene):
             pygame.draw.line(win, c, (r.right - 4, r.y + 4),
                              (r.x + 4, r.bottom - 4), 1)
             if armed:
-                text(win, x1 - 30, y + 33, 'SCRAP?', 8.5, 'mono', RED, 'r',
+                text(win, x1 - 28, y + 26, 'SCRAP?', 8.5, 'mono', RED, 'r',
                      track=0.8)
+
+        if hov:
+            if block:
+                self.hover_info = (e['name'], block, mix(RED, SOFT, 0.4))
+            elif not owned:
+                price = int(e['price'])
+                if st['credits'] >= price:
+                    self.hover_info = (
+                        e['name'], 'COST {:,} CR · CLICK TO BUY'.format(price),
+                        GOLD)
+                else:
+                    self.hover_info = (
+                        e['name'], '{:,} CR SHORT'.format(price - st['credits']),
+                        RED)
+            elif here:
+                self.hover_info = (e['name'], 'INSTALLED IN THIS SOCKET', TEAL)
+            else:
+                tag = 'TOP PICK · ' if top else ''
+                self.hover_info = (e['name'], tag + 'OWNED · CLICK TO BOLT',
+                                   TEAL)
 
     def draw_paint_chip(self, win, x, y, p):
         st = self.app.state
@@ -1112,9 +1251,18 @@ class Hangar(Scene):
         pygame.draw.line(win, (26, 42, 68), (RX0 + 16, 340), (RX1 - 16, 340), 1)
         text(win, RX0 + 16, 348, 'BUILD INTEGRITY', 10, 'bold',
              mix(SOFT, PANEL, 0.3), track=1.8)
-        good = s['airworthy'] and s['balance'] >= 55
-        text(win, RX1 - 16, 350, 'AIRWORTHY' if s['airworthy'] else 'GROUNDED',
-             9, 'mono', TEAL if s['airworthy'] else RED, 'r', track=1.4)
+        fault = s.get('fault')
+        if not s['airworthy']:
+            stat_label, stat_col = 'GROUNDED', RED
+        elif fault:
+            stat_label, stat_col = 'RISKY', GOLD
+        elif s['balance'] < 55:
+            stat_label, stat_col = 'AIRWORTHY', GOLD
+        else:
+            stat_label, stat_col = 'AIRWORTHY', TEAL
+        good = s['airworthy'] and not fault and s['balance'] >= 55
+        text(win, RX1 - 16, 350, stat_label, 9, 'mono', stat_col, 'r',
+             track=1.4)
         text(win, RX0 + 16, 368,
              'HULL {}  ·  FRAME {}  ·  ROTORS {}/4  ·  MOTORS {}/4'.format(
                  'OK' if s['hull'] else '--', 'OK' if s['frame'] else '--',
@@ -1145,12 +1293,17 @@ class Hangar(Scene):
             tip = 'STEP 3 · FIT 3+ ROTORS'
         elif s['powered'] < 3:
             tip = 'STEP 4 · MOTOR FOR EACH ROTOR'
+        elif fault:
+            tip = 'RISK · {} · MAY CRASH IN FLIGHT'.format(fault[0])
+        elif s.get('risk', 0.0) >= 0.30:
+            tip = 'WARN · CLEARANCE / DRIVE MATCH'
         elif s['balance'] < 55:
             tip = 'TRIM CRITICAL · CRAFT PULLS'
         else:
             tip = 'READY · MATCH OPPOSITE SOCKETS'
         text(win, RX0 + 16, 412, tip, 8.5, 'mono',
-             RED if not good else mix(DIM, PANEL, 0.45), track=1.1)
+             RED if (not good and s['airworthy']) or fault else
+             (mix(DIM, PANEL, 0.45) if good else RED), track=1.1)
 
         self.fly_btn.sub = ('{} · {} CORES'.format(sec['name'], sec['cores'])
                             if s['airworthy'] else self.grounded_reason())

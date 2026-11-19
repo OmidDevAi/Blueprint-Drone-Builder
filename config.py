@@ -116,24 +116,26 @@ PAINTS = (
 
 # ---------- sectors ----------
 SECTORS = (
-    {'name': 'SECTOR 01', 'sub': 'TEST RANGE', 'price': 0, 'cores': 8,
+    {'name': 'SECTOR 01', 'sub': 'STREET CIRCUIT', 'price': 0, 'cores': 8,
      'mines': 3, 'pads': 4,
      'xr': 1.8, 'yr': 0.9, 'gap': 22.0, 'reward': 1.00,
      'wind': 0.45, 'turb': 0.0,
-     'challenge': 'CALM AIR', 'brief': 'LIGHT WINDS · LEARN THE FRAME',
-     'sky': (17, 28, 54), 'line': (78, 126, 180)},
-    {'name': 'SECTOR 02', 'sub': 'CANYON RUN', 'price': 260, 'cores': 12,
+     'challenge': 'OPEN ROAD', 'brief': 'DAYLIGHT STREET · MIND THE SIGN GANTRIES',
+     'sky': (40, 54, 126), 'sky2': (146, 116, 164), 'sky3': (255, 198, 136),
+     'line': (255, 206, 130)},
+    {'name': 'SECTOR 02', 'sub': 'FOREST RUN', 'price': 260, 'cores': 12,
      'mines': 7, 'pads': 5,
      'xr': 2.4, 'yr': 1.4, 'gap': 23.0, 'reward': 1.35,
      'wind': 1.0, 'turb': 0.25,
-     'challenge': 'CROSSWIND', 'brief': 'SIDE GUSTS PUSH LIGHT BUILDS',
-     'sky': (24, 22, 46), 'line': (120, 96, 190)},
+     'challenge': 'TREELINE', 'brief': 'SIDE GUSTS BETWEEN THE TRUNKS',
+     'sky': (36, 74, 132), 'sky2': (128, 148, 176), 'sky3': (255, 208, 152),
+     'line': (255, 214, 142)},
     {'name': 'SECTOR 03', 'sub': 'ORBITAL REEF', 'price': 700, 'cores': 16,
      'mines': 10, 'pads': 6,
      'xr': 2.9, 'yr': 1.75, 'gap': 24.0, 'reward': 1.80,
      'wind': 1.5, 'turb': 0.6,
      'challenge': 'GRAV STORM', 'brief': 'HEAVY TURBULENCE · TRIM IS EVERYTHING',
-     'sky': (10, 34, 48), 'line': (64, 170, 170)},
+     'sky': (10, 34, 48), 'sky2': (3, 8, 16), 'line': (64, 170, 170)},
 )
 
 SAVE_DIR = os.path.join(os.environ.get('LOCALAPPDATA', os.path.expanduser('~')), 'Blueprint')

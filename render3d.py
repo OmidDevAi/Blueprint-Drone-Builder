@@ -470,8 +470,8 @@ def draw_parts(dst, cam, parts, vis=None, spin=0.0, pulse=1.0,
             items.append((dep, -1,
                           [(float(cx + Dc[i, 0] * ds[i]),
                             float(cy - Dc[i, 1] * ds[i])) for i in range(20)],
-                          mix(tuple(b['color'][pi].astype(int)), (255, 232, 170), 0.45),
-                          0.48 * clamp(blur)))
+                          mix(tuple(b['color'][pi].astype(int)), (206, 216, 232), 0.72),
+                          0.58 * clamp(blur)))
 
     draw_ok = active[fpart] & facing & (face_dep >= 0.75)
     if ok is not None:

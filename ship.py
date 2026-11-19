@@ -3,8 +3,24 @@ import math
 from config import SECTORS
 from parts import (SLOT_ORDER, SOCKETS, SOCKET_POS, CATALOG, entry_by_id,
                    unit_stats, chassis_mesh, body_mesh, rotor_pod_mesh,
-                   wing_half_mesh, booster_unit_mesh, paint_scheme)
+                   wing_half_mesh, booster_unit_mesh, paint_scheme, value_of)
 from render3d import clamp
+
+
+def _tier_table():
+    out = {}
+    for slot, items in CATALOG.items():
+        vals = [value_of(slot, e) for e in items]
+        out[slot] = (min(vals), max(vals))
+    return out
+
+
+_TIERS = _tier_table()
+
+
+def module_tier(slot, entry):
+    lo, hi = _TIERS[slot]
+    return clamp((value_of(slot, entry) - lo) / max(1e-6, hi - lo), 0.0, 1.0)
 
 
 def layout(state):
@@ -159,6 +175,12 @@ def compute_stats(state):
             live = 1.0
             if slot == 'rotor' and not lay['motor'].get(key):
                 live = 0.25
+            elif slot == 'rotor':
+                # a small drive on a big rotor loses blade speed
+                dg = (module_tier('rotor', entry)
+                      - module_tier('motor', entry_at(state, lay, 'motor', key)))
+                if dg > 0.0:
+                    live *= clamp(1.0 - dg * 0.45, 0.55, 1.0)
             if slot == 'motor' and not lay['rotor'].get(key):
                 live = 0.0
             if live > 0.0:
@@ -223,6 +245,50 @@ def compute_stats(state):
                 - 0.12 * mass - (100.0 - balance) * 0.12, 5.0, 100.0)
     hull_ok = entry_at(state, lay, 'body', 'c') is not None
     frame_ok = entry_at(state, lay, 'frame', 'c') is not None
+
+    # ---- compatibility ----------
+    # Not every module belongs on every airframe. Three mismatches are
+    # modelled: discs that overlap, a rotor outrunning its drive, and a heavy
+    # hull sitting on a light spar. Each one costs performance first and can
+    # bring the craft down when it is severe.
+    drive_gap = 0.0
+    max_span = 0.0
+    for key, _ in SOCKETS['rotor']:
+        rotor = entry_at(state, lay, 'rotor', key)
+        motor = entry_at(state, lay, 'motor', key)
+        if rotor is not None:
+            max_span = max(max_span, rotor.get('params', {}).get('span', 0.32))
+            if motor is not None:
+                drive_gap = max(drive_gap, module_tier('rotor', rotor)
+                                - module_tier('motor', motor))
+    body_e = entry_at(state, lay, 'body', 'c')
+    frame_e = entry_at(state, lay, 'frame', 'c')
+    load = 0.0
+    if body_e is not None and frame_e is not None:
+        load = body_e['stats']['mass'] / max(1.0, frame_e['stats']['mass'])
+    margin = min(1.44 * fw * reach, 1.20 * fl * reach) - 2.0 * max_span
+
+    risk = 0.0
+    fault = None
+    if count['rotor']:
+        if margin < 0.05:
+            risk += 0.45 + max(0.0, 0.05 - margin) * 5.0
+            if margin < 0.0:
+                fault = ('BLADE CLASH', 1.0)
+        if drive_gap > 0.28:
+            risk += min(0.9, (drive_gap - 0.28) * 1.7)
+            if drive_gap > 0.50 and fault is None:
+                fault = ('DRIVE STALL', clamp((drive_gap - 0.5) / 0.4, 0.0, 1.0))
+    if load > 5.5:
+        risk += min(0.9, (load - 5.5) * 0.11)
+        if load > 7.5 and fault is None:
+            fault = ('FRAME SNAP', 1.0)
+    if balance < 42.0:
+        risk += min(0.8, (42.0 - balance) * 0.02)
+        if balance < 25.0 and fault is None:
+            fault = ('TRIM FAILURE', clamp((42.0 - balance) / 40.0, 0.0, 1.0))
+    risk = clamp(risk, 0.0, 1.6)
+
     return {
         'mass': round(mass, 1),
         'thrust': round(thrust, 1),
@@ -244,6 +310,8 @@ def compute_stats(state):
         'balance': round(balance, 1),
         'bias_x': round(clamp(-(cog_x * 1.8 + tbx * 1.5), -0.9, 0.9), 3),
         'bias_y': round(clamp(-(cog_z * 5.0 + tbz * 1.0), -0.6, 0.6), 3),
+        'risk': round(risk, 2),
+        'fault': fault,
         'airworthy': bool(hull_ok and frame_ok and count['rotor'] >= 3
                           and powered >= 3),
     }

@@ -252,7 +252,7 @@ def icon_forge(dst, cx, cy, r, col, lw=2):
 
 ICONS = {'body': icon_body, 'frame': icon_frame, 'rotor': icon_rotor,
          'motor': icon_motor, 'wing': icon_wing, 'booster': icon_booster,
-         'paint': icon_paint}
+         'paint': icon_paint, 'forge': icon_forge}
 
 
 # ---------------- widgets ----------------

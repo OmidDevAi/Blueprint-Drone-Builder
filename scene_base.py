@@ -8,19 +8,20 @@ from render3d import mix, gradient_bg, vignette
 _SKY = {}
 
 
-def sky_surface(top, bot):
-    key = (top, bot)
+def sky_surface(top, bot, stars=True):
+    key = (top, bot, stars)
     s = _SKY.get(key)
     if s is not None:
         return s
     s = gradient_bg(SW, SH, top, bot)
-    rnd = random.Random(11)
-    for _ in range(80):
-        x = rnd.uniform(0, SW)
-        y = rnd.uniform(0, SH * 0.62)
-        r = rnd.choice((0.6, 0.8, 1.0, 1.3))
-        c = mix((36, 54, 88), (190, 214, 250), rnd.uniform(0.08, 0.6))
-        pygame.draw.circle(s, c, (int(x), int(y)), max(1, int(r)))
+    if stars:
+        rnd = random.Random(11)
+        for _ in range(80):
+            x = rnd.uniform(0, SW)
+            y = rnd.uniform(0, SH * 0.62)
+            r = rnd.choice((0.6, 0.8, 1.0, 1.3))
+            c = mix((36, 54, 88), (190, 214, 250), rnd.uniform(0.08, 0.6))
+            pygame.draw.circle(s, c, (int(x), int(y)), max(1, int(r)))
     _SKY[key] = s
     return s
 
